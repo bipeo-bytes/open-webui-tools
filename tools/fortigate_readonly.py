@@ -65,7 +65,7 @@ class Tools:
         "system_status": "get system status",
         "interface_status": "get system interface physical",
         "interface_config": "show system interface",
-        "dhcp_leases": "diagnose ip dhcp lease-list",
+        "dhcp_leases": "execute dhcp lease-list",
         "ipsec_vpn_summary": "get vpn ipsec tunnel summary",
         "ipsec_vpn_status": "diagnose vpn tunnel list",
         "ssl_vpn_status": "diagnose vpn ssl monitor",
