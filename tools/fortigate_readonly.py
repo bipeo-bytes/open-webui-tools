@@ -65,6 +65,7 @@ class Tools:
         "system_status": "get system status",
         "interface_status": "get system interface physical",
         "interface_config": "show system interface",
+        "arp_table": "get system arp",
         "dhcp_leases": "execute dhcp lease-list",
         "ipsec_vpn_summary": "get vpn ipsec tunnel summary",
         "ipsec_vpn_status": "diagnose vpn tunnel list",
@@ -217,3 +218,7 @@ class Tools:
     def get_interface_status(self):
         """Return physical interface status from the FortiGate."""
         return self.run_read_command("interface_status")
+
+    def get_arp_table(self):
+        """Return the FortiGate ARP table."""
+        return self.run_read_command("arp_table")
