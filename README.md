@@ -11,6 +11,7 @@ This workspace contains a small set of reusable Python tools for Open WebUI work
 - `tools/guild_wars_2_api.py` – Guild Wars 2 account and public game data
 - `tools/fortigate_readonly.py` – allowlisted read-only FortiGate SSH checks
 - `tools/mac_vendor.py` – MAC address manufacturer lookup
+- `tools/self_notify.py` – send personal push notifications through SelfNotify
 
 ## Quick start
 
@@ -42,3 +43,5 @@ The Guild Wars 2 tool uses the official `api.guildwars2.com` API. Configure an A
 The FortiGate tool only runs its fixed read-only command catalog. Configure the FortiGate host, read-only username, and password in its valves. The tool automatically accepts a new server host key and rejects changed keys by default. Password authentication requires `sshpass`; on Debian/Ubuntu containers install both clients with `apt-get update && apt-get install -y openssh-client sshpass`. SSH key authentication remains an optional alternative.
 
 The MAC vendor tool queries `api.macvendors.com` by default and can be pointed at another compatible lookup service through its `lookup_url` valve.
+
+The SelfNotify tool sends JSON requests to `https://self-notify.com/send`. Configure the personal token in its `token` valve; do not place the token in the Python file. It supports optional titles, subtitles, alert levels, sounds, groups, and `custom_*` fields.
