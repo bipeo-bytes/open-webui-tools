@@ -1,35 +1,123 @@
 # Open WebUI Tool Library
 
-This workspace contains a small set of reusable Python tools for Open WebUI workflows, especially networking and troubleshooting tasks.
+This workspace contains a small library of Python tools designed for Open WebUI custom tool integration. Each file follows the standard Open WebUI pattern: a `Tools` class with a nested `Valves` model and callable methods that the model can invoke.
 
 ## Included tools
 
+The current workspace includes these tool files in `tools/`:
+
+- `fortigate_readonly.py` — read-only FortiGate access over SSH. Includes safe command allowlisting, DHCP lease checks, VPN summary, interface and ARP status, switch inventory, NIC information, and log searching.
+- `mac_vendor.py` — look up a vendor for a MAC address using a public lookup service.
+- `network_dns.py` — hostname resolution and reverse DNS lookups.
+- `network_ip.py` — IPv4 validation, CIDR checks, and summary helpers.
+- `network_nmap.py` — scan a target with nmap via subprocess.
+- `network_ports.py` — TCP port and HTTP status checks.
+- `network_text.py` — log/text extraction helpers for IPs, domains, and summarized log lines.
+- `network_traceroute.py` — traceroute wrapper using system tooling with a Python fallback.
+- `self_notify.py` — send notifications through the SelfNotify API.
+- `template_tool.py` — starter template with inline comments describing each section of the tool pattern.
 
 ## Quick start
 
-1. Copy the files from this workspace into the environment where you manage Open WebUI custom tools.
-2. Import them as standalone Python tools or paste the functions into Open WebUI's tool editor.
-3. Keep each file focused on one concept so the model can choose the right tool reliably.
+1. Copy the tools you want into the environment where you manage Open WebUI custom tools.
+2. Import each file as a standalone Python custom tool.
+3. Configure the required valves in Open WebUI.
+4. Keep secrets such as tokens, passwords, and private keys in valves rather than inside the Python file.
 
-## Recommended pattern
+## FortiGate tool
 
-Use one file per capability and keep the function names specific and action-oriented. For example:
+The FortiGate tool is intentionally restricted to a read-only allowlist. It supports commands such as:
 
+- `get system status`
+- `get system interface physical`
+- `get system arp`
+- `execute dhcp lease-list`
+- `get vpn ipsec tunnel summary`
+- `diagnose sys link-monitor status`
+- `get switch-controller managed-switch`
+- `show firewall policy`
+- `get hardware nic`
 
-## Validate locally
+### SSH and host key behavior
+
+- `host`, `port`, `username`, and either `password` or `identity_file` are required.
+- Password auth requires `sshpass` in the Open WebUI runtime.
+- On Debian/Ubuntu-based runtimes, install the required clients with:
+
+```bash
+apt-get update && apt-get install -y openssh-client sshpass
+```
+
+- Host key verification is enabled by default with `StrictHostKeyChecking=yes` plus `accept-new` behavior.
+- Changed host keys are rejected; new keys are accepted automatically when `accept_new_host_key` is enabled.
+- `known_hosts_file` can be set to a custom known_hosts path if needed.
+
+### Log searching
+
+`search_logs()` uses a fixed log query flow:
+
+1. Optional `category_id` is mapped to `execute log filter category <id>`.
+2. It runs `execute log filter view-lines 1000`.
+3. It runs `execute log display`.
+4. It applies your `search_string` as a Python regular expression locally.
+
+The regex is never inserted into the FortiGate CLI. This keeps the tool safer and easier to reason about.
+
+Supported category IDs are:
+
+- `0` traffic
+- `1` event
+- `2` antivirus
+- `3` web filter
+- `4` IPS
+- `5` application control
+- `7` email filter
+- `8` DLP
+- `9` vulnerability scan
+- `11` VoIP
+- `12` WAF
+
+Use patterns like `error|failed|denied` and optionally pass `case_sensitive=False` to make the search case-insensitive.
+
+## SelfNotify tool
+
+The SelfNotify tool sends JSON payloads to `https://self-notify.com/send` using a configured token. Keep the token in the Open WebUI valve, not directly in the Python file.
+
+Supported options include:
+
+- `title`
+- `subtitle`
+- `alert_level` (`active`, `passive`, `time-sensitive`, `critical`)
+- `sound`
+- `group`
+- `custom_*` fields
+
+## Template tool
+
+`template_tool.py` is intentionally commented so it can be used as a starter kit for new custom tools. It demonstrates:
+
+- imports
+- `Tools` class definition
+- `Valves` configuration
+- constructor setup
+- private helper methods
+- public callable methods
+- input validation and JSON-friendly return payloads
+
+## Recommended validation
+
+From the workspace root, run:
 
 ```bash
 python -m compileall .
+python -m py_compile tools/*.py
 ```
+
+This checks the project for syntax errors without requiring a full Open WebUI runtime.
 
 ## Notes
 
-The tool implementations intentionally use only the Python standard library so they can run in a minimal Open WebUI environment without extra packages.
-
-The Guild Wars 2 tool uses the official `api.guildwars2.com` API. Configure an API key in its Open WebUI valve to use account and character endpoints; public item, map, world, and guild details do not require a key.
-
-The FortiGate tool only runs its fixed read-only command catalog. Configure the FortiGate host, read-only username, and password in its valves. The tool automatically accepts a new server host key and rejects changed keys by default. Password authentication requires `sshpass`; on Debian/Ubuntu containers install both clients with `apt-get update && apt-get install -y openssh-client sshpass`. SSH key authentication remains an optional alternative.
-
-The FortiGate tool's `search_logs` method runs the fixed `execute log filter view-lines 1000` and `execute log display` commands, then filters the returned lines locally using `search_string` as a regular expression. Pass `max_logs` and optionally `case_sensitive`; the search pattern is never inserted into a FortiGate command.
-
-The SelfNotify tool sends JSON requests to `https://self-notify.com/send`. Configure the personal token in its `token` valve; do not place the token in the Python file. It supports optional titles, subtitles, alert levels, sounds, groups, and `custom_*` fields.
+- The implementation intentionally prefers the Python standard library plus Pydantic for compatibility with minimal Open WebUI environments.
+- Tools are intentionally narrow in scope and should be treated as allowlisted wrappers rather than unrestricted shell access.
+- Store credentials and tokens in Open WebUI valves; do not hardcode them into tool files.
+- A tool is only as safe as the command list and validation it enforces — the FortiGate and other wrappers in this workspace are designed with that principle in mind.
