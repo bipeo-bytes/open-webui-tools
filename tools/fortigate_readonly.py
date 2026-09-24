@@ -298,6 +298,7 @@ class Tools:
         max_logs: Optional[int] = 100,
         case_sensitive: bool = False,
         all_terms: bool = False,
+        category_id: Optional[int] = None,
     ):
         """Search FortiOS logs and return only matching log lines.
 
@@ -305,6 +306,9 @@ class Tools:
         when it contains any term. Set all_terms to true only when every term must
         appear on the same line; this commonly returns no results for a long list
         of unrelated alert words. max_logs limits the number of returned lines.
+        Optionally set category_id to filter the FortiOS log category first:
+        0 traffic, 1 event, 2 antivirus, 3 web filter, 4 IPS, 5 application
+        control, 7 email filter, 8 DLP, 9 vulnerability scan, 11 VoIP, or 12 WAF.
         """
         cleaned_search = (search_string or "").strip()
         if not cleaned_search:
@@ -313,9 +317,21 @@ class Tools:
         if max_logs is not None and max_logs < 1:
             return {"ok": False, "error": "max_logs must be at least 1 or null for no limit."}
 
+        valid_categories = {0, 1, 2, 3, 4, 5, 7, 8, 9, 11, 12}
+        if category_id is not None and category_id not in valid_categories:
+            return {
+                "ok": False,
+                "error": "Unsupported category_id.",
+                "allowed_category_ids": sorted(valid_categories),
+            }
+
+        commands = []
+        if category_id is not None:
+            commands.append(f"execute log filter category {category_id}")
+        commands.extend(["execute log filter view-lines 1000", "execute log display"])
         result = self._execute_commands(
             "search_logs",
-            ["execute log filter view-lines 1000", "execute log display"],
+            commands,
         )
         if not result.get("ok"):
             return result
@@ -343,6 +359,7 @@ class Tools:
             "search_terms": search_terms,
             "case_sensitive": case_sensitive,
             "all_terms": all_terms,
+            "category_id": category_id,
             "max_logs": max_logs,
             "total_matches": total_matches,
             "returned_matches": len(matching_lines),
