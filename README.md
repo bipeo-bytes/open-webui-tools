@@ -30,6 +30,6 @@ The Guild Wars 2 tool uses the official `api.guildwars2.com` API. Configure an A
 
 The FortiGate tool only runs its fixed read-only command catalog. Configure the FortiGate host, read-only username, and password in its valves. The tool automatically accepts a new server host key and rejects changed keys by default. Password authentication requires `sshpass`; on Debian/Ubuntu containers install both clients with `apt-get update && apt-get install -y openssh-client sshpass`. SSH key authentication remains an optional alternative.
 
-The FortiGate tool's `search_logs` method runs the fixed `execute log filter view-lines 1000` and `execute log display` commands, then filters the returned lines locally. Pass `search_string`, optionally `max_logs`, and optionally `case_sensitive`; the search value is never inserted into a FortiGate command. `all_terms` defaults to false and returns lines containing any term; setting it to true requires every term to appear on the same line.
+The FortiGate tool's `search_logs` method runs the fixed `execute log filter view-lines 1000` and `execute log display` commands, then filters the returned lines locally using `search_string` as a regular expression. Pass `max_logs` and optionally `case_sensitive`; the search pattern is never inserted into a FortiGate command.
 
 The SelfNotify tool sends JSON requests to `https://self-notify.com/send`. Configure the personal token in its `token` valve; do not place the token in the Python file. It supports optional titles, subtitles, alert levels, sounds, groups, and `custom_*` fields.

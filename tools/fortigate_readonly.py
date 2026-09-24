@@ -297,15 +297,13 @@ class Tools:
         search_string: str,
         max_logs: Optional[int] = 100,
         case_sensitive: bool = False,
-        all_terms: bool = False,
         category_id: Optional[int] = None,
     ):
-        """Search FortiOS logs and return only matching log lines.
+        """Search FortiOS logs using a regular expression and return matching lines.
 
-        Provide whitespace-separated search terms. By default, a line is returned
-        when it contains any term. Set all_terms to true only when every term must
-        appear on the same line; this commonly returns no results for a long list
-        of unrelated alert words. max_logs limits the number of returned lines.
+        search_string is always interpreted as a Python regular expression.
+        Use alternation such as ``error|failed|denied`` to match any of several
+        terms. max_logs limits the number of returned lines.
         Optionally set category_id to filter the FortiOS log category first:
         0 traffic, 1 event, 2 antivirus, 3 web filter, 4 IPS, 5 application
         control, 7 email filter, 8 DLP, 9 vulnerability scan, 11 VoIP, or 12 WAF.
@@ -336,17 +334,13 @@ class Tools:
         if not result.get("ok"):
             return result
 
-        search_terms = cleaned_search.split()
         output = result.get("output", "")
-        matching_lines = []
-        for line in output.splitlines():
-            comparison_line = line if case_sensitive else line.casefold()
-            comparison_terms = search_terms if case_sensitive else [term.casefold() for term in search_terms]
-            matches = all(term in comparison_line for term in comparison_terms) if all_terms else any(
-                term in comparison_line for term in comparison_terms
-            )
-            if matches:
-                matching_lines.append(line)
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            pattern = re.compile(cleaned_search, flags)
+        except re.error as exc:
+            return {"ok": False, "error": f"Invalid regular expression: {exc}"}
+        matching_lines = [line for line in output.splitlines() if pattern.search(line)]
 
         total_matches = len(matching_lines)
         limited = max_logs is not None and total_matches > max_logs
@@ -356,9 +350,7 @@ class Tools:
         return {
             "ok": True,
             "search_string": cleaned_search,
-            "search_terms": search_terms,
             "case_sensitive": case_sensitive,
-            "all_terms": all_terms,
             "category_id": category_id,
             "max_logs": max_logs,
             "total_matches": total_matches,
