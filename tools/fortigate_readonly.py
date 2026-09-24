@@ -7,6 +7,7 @@ description: Run an allowlisted set of read-only FortiGate CLI commands over SSH
 """
 
 import os
+import re
 import shutil
 import subprocess
 from typing import Dict, Optional
@@ -48,6 +49,10 @@ class Tools:
             default=30,
             description="Maximum time allowed for a FortiGate command.",
         )
+        pager_space_count: int = Field(
+            default=4096,
+            description="Number of spaces sent to advance through FortiOS --More-- prompts.",
+        )
         strict_host_key_checking: bool = Field(
             default=True,
             description="Verify the FortiGate host key using known_hosts.",
@@ -72,14 +77,17 @@ class Tools:
         "ssl_vpn_status": "diagnose vpn ssl monitor",
         "link_monitors": "diagnose sys link-monitor status",
         "routing_table": "get router info routing-table all",
-        "firewall_policy_summary": "diagnose firewall iprope show 100",
+        "list_switches": "get switch-controller managed-switch",
+        "show_firewall_policies": "show firewall policy",
+        "list_nics": "get hardware nic",
+
     }
 
     def __init__(self):
         self.valves = self.Valves()
         self.citation = True
 
-    def _ssh_command(self, command: str):
+    def _ssh_command(self, command: str, allocate_tty: bool = False):
         """Build a non-interactive SSH command from configured connection settings."""
         if not self.valves.host.strip():
             return None, "FortiGate host is not configured in the tool valves."
@@ -130,6 +138,8 @@ class Tools:
             "-o",
             f"StrictHostKeyChecking={host_key_policy}",
         ]
+        if allocate_tty:
+            ssh_args.append("-tt")
 
         if not self.valves.strict_host_key_checking:
             ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
@@ -138,24 +148,57 @@ class Tools:
         if self.valves.identity_file.strip():
             ssh_args.extend(["-i", self.valves.identity_file.strip()])
 
-        ssh_args.extend([f"{self.valves.username.strip()}@{self.valves.host.strip()}", command])
+        ssh_args.append(f"{self.valves.username.strip()}@{self.valves.host.strip()}")
+        if command:
+            ssh_args.append(command)
         if self.valves.password:
             ssh_args.insert(0, sshpass_binary)
             ssh_args.insert(1, "-e")
 
         return ssh_args, None
 
-    def run_read_command(self, operation: str):
-        """Run one allowlisted read-only FortiGate operation over SSH."""
-        operation_name = (operation or "").strip().lower()
-        command = self.READ_COMMANDS.get(operation_name)
-        if not command:
+    def _execute_commands(self, operation_name: str, commands):
+        """Execute multiple FortiOS commands in one interactive SSH session."""
+        ssh_args, error = self._ssh_command("", allocate_tty=True)
+        if error:
+            return {"ok": False, "operation": operation_name, "error": error}
+
+        environment = os.environ.copy()
+        if self.valves.password:
+            environment["SSHPASS"] = self.valves.password
+
+        pager_space_count = getattr(self.valves, "pager_space_count", 4096)
+        input_text = "\n".join(commands) + "\n" + " " * max(0, pager_space_count) + "\nexit\n"
+        try:
+            completed = subprocess.run(
+                ssh_args,
+                capture_output=True,
+                text=True,
+                timeout=self.valves.command_timeout_seconds,
+                check=False,
+                env=environment,
+                input=input_text,
+            )
+        except subprocess.TimeoutExpired:
             return {
                 "ok": False,
-                "error": "Unsupported operation.",
-                "available_operations": sorted(self.READ_COMMANDS),
+                "operation": operation_name,
+                "error": f"FortiGate SSH command timed out after {self.valves.command_timeout_seconds} seconds.",
             }
+        except OSError as exc:
+            return {"ok": False, "operation": operation_name, "error": f"SSH execution failed: {exc}"}
 
+        return {
+            "ok": completed.returncode == 0,
+            "operation": operation_name,
+            "command": "; ".join(commands),
+            "return_code": completed.returncode,
+            "output": (completed.stdout or "").strip(),
+            "error_output": (completed.stderr or "").strip(),
+        }
+
+    def _execute_command(self, operation_name: str, command: str):
+        """Execute one validated FortiGate read-only command over SSH."""
         ssh_args, error = self._ssh_command(command)
         if error:
             return {"ok": False, "operation": operation_name, "error": error}
@@ -172,6 +215,7 @@ class Tools:
                 timeout=self.valves.command_timeout_seconds,
                 check=False,
                 env=environment,
+                input=" " * max(0, self.valves.pager_space_count),
             )
         except subprocess.TimeoutExpired:
             return {
@@ -192,6 +236,19 @@ class Tools:
             "output": stdout,
             "error_output": stderr,
         }
+
+    def run_read_command(self, operation: str):
+        """Run one allowlisted read-only FortiGate operation over SSH."""
+        operation_name = (operation or "").strip().lower()
+        command = self.READ_COMMANDS.get(operation_name)
+        if not command:
+            return {
+                "ok": False,
+                "error": "Unsupported operation.",
+                "available_operations": sorted(self.READ_COMMANDS),
+            }
+
+        return self._execute_command(operation_name, command)
 
     def list_read_operations(self):
         """List the read-only FortiGate operations available to the agent."""
@@ -222,3 +279,99 @@ class Tools:
     def get_arp_table(self):
         """Return the FortiGate ARP table."""
         return self.run_read_command("arp_table")
+
+    def list_switches(self):
+        """Return the list of managed switches."""
+        return self.run_read_command("list_switches")
+
+    def show_firewall_policies(self):
+        """Return the configuration of firewall policies."""
+        return self.run_read_command("show_firewall_policies")
+
+    def list_nics(self):
+        """Return the list of network interfaces."""
+        return self.run_read_command("list_nics")
+
+    def search_logs(
+        self,
+        search_string: str,
+        max_logs: Optional[int] = 100,
+        case_sensitive: bool = False,
+        all_terms: bool = False,
+    ):
+        """Search FortiOS logs and return only matching log lines.
+
+        Provide whitespace-separated search terms. By default, a line is returned
+        when it contains any term. Set all_terms to true only when every term must
+        appear on the same line; this commonly returns no results for a long list
+        of unrelated alert words. max_logs limits the number of returned lines.
+        """
+        cleaned_search = (search_string or "").strip()
+        if not cleaned_search:
+            return {"ok": False, "error": "search_string is required."}
+
+        if max_logs is not None and max_logs < 1:
+            return {"ok": False, "error": "max_logs must be at least 1 or null for no limit."}
+
+        result = self._execute_commands(
+            "search_logs",
+            ["execute log filter view-lines 1000", "execute log display"],
+        )
+        if not result.get("ok"):
+            return result
+
+        search_terms = cleaned_search.split()
+        output = result.get("output", "")
+        matching_lines = []
+        for line in output.splitlines():
+            comparison_line = line if case_sensitive else line.casefold()
+            comparison_terms = search_terms if case_sensitive else [term.casefold() for term in search_terms]
+            matches = all(term in comparison_line for term in comparison_terms) if all_terms else any(
+                term in comparison_line for term in comparison_terms
+            )
+            if matches:
+                matching_lines.append(line)
+
+        total_matches = len(matching_lines)
+        limited = max_logs is not None and total_matches > max_logs
+        if max_logs is not None:
+            matching_lines = matching_lines[:max_logs]
+
+        return {
+            "ok": True,
+            "search_string": cleaned_search,
+            "search_terms": search_terms,
+            "case_sensitive": case_sensitive,
+            "all_terms": all_terms,
+            "max_logs": max_logs,
+            "total_matches": total_matches,
+            "returned_matches": len(matching_lines),
+            "truncated": limited,
+            "logs": matching_lines,
+        }
+
+    def get_nic_status(self, nic: str):
+        """Return status details for one NIC by name."""
+        cleaned_nic = (nic or "").strip()
+        if not cleaned_nic:
+            return {"ok": False, "error": "nic is required."}
+        if not re.fullmatch(r"[A-Za-z0-9._:-]+", cleaned_nic):
+            return {"ok": False, "error": "nic contains unsupported characters."}
+
+        command = f"get hardware nic {cleaned_nic}"
+        return self._execute_command("nic_status", command)
+
+    def get_switch_configuration(self, switch_id: str):
+        """Return the configuration for one managed switch by ID or serial number."""
+        cleaned_id = (switch_id or "").strip()
+        if not cleaned_id:
+            return {"ok": False, "error": "switch_id is required."}
+        if not re.fullmatch(r"[A-Za-z0-9._:-]+", cleaned_id):
+            return {
+                "ok": False,
+                "error": "switch_id contains unsupported characters.",
+            }
+
+        command = f"show switch-controller managed-switch {cleaned_id}"
+        return self._execute_command("switch_configuration", command)
+
