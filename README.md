@@ -17,6 +17,8 @@ The current workspace includes these tool files in `tools/`:
 - `self_notify.py` — send notifications through the SelfNotify API.
 - `template_tool.py` — starter template with inline comments describing each section of the tool pattern.
 
+There is no Guild Wars 2 API tool in the current `tools/` directory.
+
 ## Quick start
 
 1. Copy the tools you want into the environment where you manage Open WebUI custom tools.
@@ -48,8 +50,9 @@ The FortiGate tool is intentionally restricted to a read-only allowlist. It supp
 apt-get update && apt-get install -y openssh-client sshpass
 ```
 
-- Host key verification is enabled by default with `StrictHostKeyChecking=yes` plus `accept-new` behavior.
-- Changed host keys are rejected; new keys are accepted automatically when `accept_new_host_key` is enabled.
+- Host key verification is enabled by default. With the default `accept_new_host_key=True`, SSH uses `StrictHostKeyChecking=accept-new`: new keys are saved automatically and changed keys are rejected.
+- Set `accept_new_host_key=False` to require a key already present in `known_hosts`.
+- Setting `strict_host_key_checking=False` disables verification; avoid this outside disposable test environments.
 - `known_hosts_file` can be set to a custom known_hosts path if needed.
 
 ### Log searching
@@ -104,6 +107,14 @@ Supported options include:
 - public callable methods
 - input validation and JSON-friendly return payloads
 
+## Runtime requirements
+
+- Python and Pydantic are required by the Open WebUI tool runtime.
+- `network_nmap.py` requires the `nmap` executable installed and available on `PATH`.
+- `network_traceroute.py` uses the system `tracert`, `traceroute`, or `tracepath` executable when available. Its raw-ICMP fallback may require elevated privileges and may be unavailable in containers.
+- `fortigate_readonly.py` requires OpenSSH. Password authentication additionally requires `sshpass`; SSH key authentication can be used instead.
+- `mac_vendor.py` and `self_notify.py` require network access to their configured HTTP endpoints. SelfNotify also requires a token configured in its valve.
+
 ## Recommended validation
 
 From the workspace root, run:
@@ -113,11 +124,11 @@ python -m compileall .
 python -m py_compile tools/*.py
 ```
 
-This checks the project for syntax errors without requiring a full Open WebUI runtime.
+This checks the project for syntax errors without requiring the external tools or a live Open WebUI runtime.
 
 ## Notes
 
-- The implementation intentionally prefers the Python standard library plus Pydantic for compatibility with minimal Open WebUI environments.
+- The tools use the Python standard library for HTTP, networking, and subprocess work wherever practical, with Pydantic for Open WebUI valve configuration.
 - Tools are intentionally narrow in scope and should be treated as allowlisted wrappers rather than unrestricted shell access.
 - Store credentials and tokens in Open WebUI valves; do not hardcode them into tool files.
 - A tool is only as safe as the command list and validation it enforces — the FortiGate and other wrappers in this workspace are designed with that principle in mind.
